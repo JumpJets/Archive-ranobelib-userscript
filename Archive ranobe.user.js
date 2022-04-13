@@ -105,6 +105,7 @@ ${body}
 
 			const url = `${window.location.origin}${window.location.pathname}/v${c.chapter_volume}/c${c.chapter_number}`,
 				  [dom_head, dom_txt] = await ftch(url).then((text) => { const p = new DOMParser(), doc = p.parseFromString(text, "text/html"); return [doc.querySelector("a.reader-header-action"), doc.querySelector(".reader-container")]; });
+
 			zip.folder("chapters_html").file(`v${c.chapter_volume}_${c.chapter_number.toString().padStart(3, "0")}.html`, html_template(`${dom_head.querySelector(".reader-header-action__text").innerText} - Том ${c.chapter_volume} Глава ${c.chapter_number}`, dom_head.innerHTML.trim(), dom_txt.innerHTML));
 
 			zip.folder("chapters_txt").file(`v${c.chapter_volume}_${c.chapter_number.toString().padStart(3, "0")}.txt`, `${dom_head.innerText.replace(/^\n/, "")}\n\n${Array.from(dom_txt.children).map(c => c.innerText + "\n").join("")}`);
@@ -112,7 +113,7 @@ ${body}
 
 		zip.generateAsync({type: "base64"}).then((base64) => {
 			const a = document.createElement("a");
-			a.href="data:application/zip;base64," + base64;
+			a.href = "data:application/zip;base64," + base64;
 			a.download = `${window.location.pathname.substring(window.location.pathname.lastIndexOf("/") + 1)}.zip`;
 			a.click();
 		});
