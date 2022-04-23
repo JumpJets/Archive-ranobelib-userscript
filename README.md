@@ -11,3 +11,9 @@ This script will add new button on title pages at bottom-right with download ico
 Script will save zip archive with folders for text chapters (.txt) and html chapters with styles and buttons to navigate (very simple). HTML file also use dark theme.
 
 To see progress, you may open console (`Ctrl`+`Shift`+`I`) and watch download logs.
+
+# Related
+
+You can find similar userscript for mangalib.me
+
+* https://github.com/JumpJets/Archive-mangalib-userscript
