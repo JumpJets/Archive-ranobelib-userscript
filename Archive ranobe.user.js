@@ -1,39 +1,84 @@
 // ==UserScript==
 // @name         Archive ranobe
 // @namespace    https://github.com/JumpJets/Archive-ranobelib-userscript
-// @version      1.1
+// @version      2024.04.21
 // @description  Download ranobe from ranobelib.me as archived zip.
 // @author       X4
-// @include      /^https?:\/\/ranobelib\.me\/[\w\-]+(?:\?.+|#.*)?$/
+// @match        https://ranobelib.me/*book/*
 // @icon         https://icons.duckduckgo.com/ip2/ranobelib.me.ico
-// @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.9.1/jszip.min.js
+// @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js
 // @grant        none
 // ==/UserScript==
 
-(function() {
+(() => {
 	"use strict";
 
-	const dl_archive = async (e) => {
-		const ftch = async (url) => { const resp = await fetch(url, {method: "GET"}); return await resp.text() };
+	const create_element = (tag, attrs) => attrs ? Object.assign(document.createElement(tag), attrs) : document.createElement(tag);
 
+	const delay = time => new Promise(resolve => setTimeout(resolve, time));
+
+	const unix_timestamp = () => Math.floor(new Date().getTime() / 1_000)
+
+	const fetch_json = async (url) => {
+		try {
+			const resp = await fetch(url, { method: "GET" });
+
+			if (resp.status === 429) {
+				console.warn([...resp.headers], resp.headers.has("X-Ratelimit-Reset"), +resp.headers.get("X-Ratelimit-Reset"))
+				const reset_at = resp.headers.has("X-Ratelimit-Reset") ? +resp.headers.get("X-Ratelimit-Reset") : unix_timestamp() + 60,
+					now = unix_timestamp(),
+					dt = reset_at - now;
+
+				console.warn(`Waiting ${dt} seconds for ratelimit reset for url: ${url}`)
+
+				await delay(dt * 1_000);
+				return await fetch_json(url);
+			}
+			if (!resp.ok) return;
+
+			return await resp.json();
+		} catch (e) {
+			console.error(`Fetch error: ${url}\n`, e);
+		}
+	};
+
+	const fetch_blob = async (url) => {
+		try {
+			const resp = await fetch(url, { method: "GET" });
+
+			if (!resp.ok) return;
+
+			return await resp.blob(); // URL.createObjectURL(blob);
+		} catch (e) {
+			console.error(`Fetch error: ${url}\n`, e);
+		}
+	};
+
+	const fetch_chapters = async (ranobe_id) => (await fetch_json(`https://api.lib.social/api/manga/${ranobe_id}/chapters`))?.data;
+
+	const fetch_chapter = async (ranobe_id, volume, number) => (await fetch_json(`https://api.lib.social/api/manga/${ranobe_id}/chapter?number=${number}&volume=${volume}`))?.data;
+
+	const fetch_ranobe_data = async (slug) => (await fetch_json(`https://api.lib.social/api/manga/${slug}?fields[]=background&fields[]=eng_name&fields[]=otherNames&fields[]=summary&fields[]=releaseDate&fields[]=type_id&fields[]=caution&fields[]=views&fields[]=close_view&fields[]=rate_avg&fields[]=rate&fields[]=genres&fields[]=tags&fields[]=teams&fields[]=franchise&fields[]=authors&fields[]=publisher&fields[]=userRating&fields[]=moderated&fields[]=metadata&fields[]=metadata.count&fields[]=metadata.close_comments&fields[]=manga_status_id&fields[]=chap_count&fields[]=status_id&fields[]=artists&fields[]=format`))?.data;
+
+	const dl_archive = async (e) => {
 		function* zipiter(arr) {
 			let i = 1;
 			const amax = arr.length;
 
 			if (amax === 0) return;
 			else if (amax === 1) {
-				yield [null, arr[0], null];
+				yield [0, null, arr[0], null];
 				return;
 			}
 
-			yield [null, arr[0], arr[1]];
+			yield [0, null, arr[0], arr[1]];
 
 			while (i <= amax - 2) {
-				yield [arr[i - 1], arr[i], arr[i + 1]];
+				yield [i, arr[i - 1], arr[i], arr[i + 1]];
 				++i;
 			}
 
-			yield [arr[i - 1], arr[i], null];
+			yield [i, arr[i - 1], arr[i], null];
 		}
 
 		const html_template = (title, head, body, ch_p, ch_c, ch_n, ch_all) => `<!DOCTYPE html>
@@ -53,19 +98,28 @@
 			word-break: break-word;
 			margin: 0 auto;
 			padding: 25px 5vw;
-			background-color: #434751;
+			background-color: hsl(223 9% 13% / 1);
 			color: #dbdbdb;
 			min-height: calc(100vh - 50px);
 		}
 
 		* {
 			tab-size: 4 !important;
-			scrollbar-width: thin; /* Firefox scrollbar 8px */
 		}
+
+		/* Firefox scrollbar, 8px */
+		@supports (-moz-appearance:none) {
+			* {
+				scrollbar-width: thin;
+			}
+		}
+
 		/* Chrome scrollbar */
 		*::-webkit-scrollbar {
-			width: 8px;
-			height: 8px;
+			/*width: 8px;
+			height: 8px;*/
+			width: 5px;
+			height: 5px;
 			background-color: transparent;
 		}
 		*::-webkit-scrollbar-thumb {
@@ -75,13 +129,10 @@
 			background-color: #8883;
 		}
 
-		div {
+		h1 {
 			line-height: 1.4;
 			font-weight: 700;
 			font-size: 24px;
-		}
-		div ~ div:last-of-type {
-			margin-bottom: 40px;
 		}
 
 		p {
@@ -95,25 +146,30 @@
 			color: inherit;
 			text-decoration: none;
 			border-radius: 10px;
-		}
-		a.prev, a.next {
-			position: fixed;
-			bottom: 5px;
-			width: 4vw;
-			height: 30vh;
-			font-size: 2vw;
-			line-height: 30vh;
-			border: 1px solid #dbdbdb;
-			z-index: 5;
-		}
-		a.prev {
-			left: 5px;
-		}
-		a.next {
-			right: 5px;
-		}
-		a:hover {
-			background-color: #dbdbdb30;
+
+			&:hover {
+				background-color: #dbdbdb30;
+			}
+
+			&.prev {
+				left: 5px;
+			}
+
+			&.next {
+				right: 5px;
+			}
+
+			&.prev,
+			&.next {
+				position: fixed;
+				bottom: 5px;
+				width: 4vw;
+				height: 30vh;
+				font-size: 2vw;
+				line-height: 30vh;
+				border: 1px solid #dbdbdb;
+				z-index: 5;
+			}
 		}
 
 		nav {
@@ -126,7 +182,7 @@
 			padding: 10px 14px;
 			gap: 2px;
 			align-content: start;
-			background-color: hsla(223, 9.5%, 22%, 0);
+			background-color: hsl(223 9.5% 22% / 0);
 			text-align: left;
 			font-weight: 500;
 			font-size: 16px;
@@ -134,25 +190,36 @@
 			overflow: hidden;
 			z-index: 3;
 			transition: .3s ease;
-		}
-		nav::before {
-			content: "Оглавление";
-			display: block;
-			font-size: 20px;
-			padding: 15px 15px 20px 15px;
-			cursor: pointer;
-		}
-		nav:focus-within {
-			max-height: calc(100vh - 20px);
-			overflow: auto;
-			background-color: hsla(223, 9.5%, 22%, 1);
-			z-index: 6;
-		}
-		nav > a {
-			padding: 10px 14px;
-		}
-		nav > a:hover, nav > a.current {
-			background-color: hsla(223, 9.5%, 13%, 0.3);
+
+			&::before {
+				content: "Оглавление";
+				display: block;
+				font-size: 20px;
+				padding: 25px 15px 20px 15px;
+				cursor: pointer;
+				position: sticky;
+				top: -10px;
+			}
+
+			&:focus-within {
+				max-height: calc(100vh - 20px);
+				overflow: auto;
+				background-color: hsl(223 9.5% 22% / 1);
+				z-index: 6;
+
+				&::before {
+					background-color: hsl(223 9.5% 22% / 1);
+				}
+			}
+
+			> a {
+				padding: 10px 14px;
+			}
+
+			> a:hover,
+			> a.current {
+				background-color: hsl(223 9.5% 13% / 0.3);
+			}
 		}
 	</style>
 </head>
@@ -160,85 +227,106 @@
 ${head}
 ${body}
 <script>
+	const create_element = (tag, attrs) => attrs ? Object.assign(document.createElement(tag), attrs) : document.createElement(tag);
+
 	const chapters = ${JSON.stringify(ch_all)},
 		  current = ${JSON.stringify(ch_c)},
-		  nav = document.createElement("nav"),
-		  a_p = document.createElement("a"),
-		  a_n = document.createElement("a");
-
-	a_p.href = \`v${ch_p?.chapter_volume}_${ch_p?.chapter_number?.toLocaleString?.("en-US", {minimumIntegerDigits: 3, useGrouping: false})}.html\`;
-	a_n.href = \`v${ch_n?.chapter_volume}_${ch_n?.chapter_number?.toLocaleString?.("en-US", {minimumIntegerDigits: 3, useGrouping: false})}.html\`;
-
-	a_p.classList.add("prev");
-	a_n.classList.add("next");
-
-	a_p.innerText = "←";
-	a_n.innerText = "→";
+		  nav = create_element("nav", { tabIndex: "0" }),
+		  a_p = create_element("a", { classList: "prev", href: \`v${ch_p?.volume}_${ch_p?.number?.toLocaleString?.("en-US", { minimumIntegerDigits: 3, useGrouping: false })}.html\`, innerText: "←" }),
+		  a_n = create_element("a", { classList: "next", href: \`v${ch_n?.volume}_${ch_n?.number?.toLocaleString?.("en-US", { minimumIntegerDigits: 3, useGrouping: false })}.html\`, innerText: "→" });
 
 	if (${!!ch_p}) document.body.appendChild(a_p);
 	if (${!!ch_n}) document.body.appendChild(a_n);
 
 	for (let ch of chapters) {
-		const cd = document.createElement("a");
-		cd.innerText = \`Том \${ch.chapter_volume} Глава \${ch.chapter_number} - \${ch.chapter_name}\`;
-		cd.href = \`v\${ch.chapter_volume}_\${ch.chapter_number.toLocaleString("en-US", {minimumIntegerDigits: 3, useGrouping: false})}.html\`;
+		const cd = create_element("a", { innerText: \`Том \${ch.volume} Глава \${ch.number} - \${ch.name}\`, href: \`v\${ch.volume}_\${ch.number.toLocaleString("en-US", {minimumIntegerDigits: 3, useGrouping: false})}.html\` });
 
-		if (ch.chapter_id === current.chapter_id) cd.classList.add("current");
+		if (ch.id === current.id) cd.classList.add("current");
 
 		nav.appendChild(cd);
 	}
-
-	nav.setAttribute("tabindex", "0");
 
 	document.body.appendChild(nav);
 </script>
 </body>
 </html>`;
 
+		const get_attachment = (attachments, name) => {
+			for (const attachment of attachments) {
+				if (attachment.name === name) return attachment;
+			}
+		};
+
+		const local_attachment = (attachments, name, chapter) => {
+			const attachment = get_attachment(attachments, name);
+			if (!attachment) return;
+
+			return `../images/${chapter}/${attachment.filename}`;
+		};
+
 		const zip = new JSZip(),
-			  chapters = window?.__DATA__?.chapters?.list?.reverse?.() ?? [],
-			  last = chapters[chapters.length - 1];
+			ranobe_id = +window.location.pathname.match(/(?<=book\/)\d+/)?.[0],
+			slug = window.location.pathname.match(/(?<=book\/)[\w\-]+/)?.[0],
+			ranobe_data = await fetch_ranobe_data(slug),
+			title = ranobe_data?.rus_name || ranobe_data?.name,
+			chapters = await fetch_chapters(ranobe_id),
+			last = chapters.at(-1);
 
-		for (let [p, c, n] of zipiter(chapters)) {
-			console.log(`DL volume ${c.chapter_volume} chapter ${c.chapter_number} of volume ${last.chapter_volume} chapter ${last.chapter_number}`);
+		for (let [i, prev, curr, next] of zipiter(chapters)) {
+			console.log(`DL: volume ${curr.volume} chapter ${curr.number} / volume ${last.volume} chapter ${last.number}`);
 
-			const url = `${window.location.origin}${window.location.pathname}/v${c.chapter_volume}/c${c.chapter_number}`,
-				  [dom_head, dom_txt] = await ftch(url).then((text) => { const p = new DOMParser(), doc = p.parseFromString(text, "text/html"); return [doc.querySelector("a.reader-header-action"), doc.querySelector(".reader-container")]; });
+			const chapter_tag = `v${curr.volume}_${curr.number.toLocaleString("en-US", { minimumIntegerDigits: 3, useGrouping: false })}`,
+				chapter = await fetch_chapter(ranobe_id, curr.volume, curr.number) ?? { content: "", attachments: [] },
+				attachments = chapter?.attachments?.map?.(a => ({ ...a, url: a?.url?.startsWith?.("/uploads/") ? `${window.location.origin}${a.url}` : `${window.location.origin}/uploads${a.url}` })) ?? [],
+				content_type = typeof chapter.content === "string", // string / json
+				html = (content_type
+					? chapter.content.replace(/(<img (?:[\w"=]+\s)*src=")[^"]+\/([^\/"]+)("(?:[\w"=]+\s|\s)*\/?>)/g, `$1../images/${chapter_tag}/$2$3`)
+					: chapter.content.content.map(o => (o.type === "paragraph"
+						? `<p>${o?.content?.map?.(o2 => o2.text)?.join?.("<br />") ?? ""}</p>`
+						: (o.type === "image" ? `<img alt="" src=${local_attachment(attachments, o?.attrs?.images?.[0]?.image, chapter_tag)} />` : `<p>${o?.text}</p>`)
+					)).join("")),
+				head = `<h1>Том ${curr.volume} Глава ${curr.number}${chapter.name ? " - " + chapter.name : ""}</h1>`;
+
+			if (attachments?.length) {
+				const images_folder = zip.folder("images").folder(chapter_tag)
+
+				for (const attachment of attachments) {
+					console.log(`DL image: ${attachment.url}`);
+
+					const blob = await fetch_blob(attachment.url);
+					if (blob) images_folder.file(attachment.filename, blob);
+				}
+			}
 
 			zip.folder("chapters_html").file(
-				`v${c.chapter_volume}_${c.chapter_number.toLocaleString("en-US", {minimumIntegerDigits: 3, useGrouping: false})}.html`,
-				html_template(`${dom_head.querySelector(".reader-header-action__text").innerText} - Том ${c.chapter_volume} Глава ${c.chapter_number}`, dom_head.innerHTML.trim(), dom_txt.innerHTML, p, c, n, chapters)
+				`${chapter_tag}.html`,
+				html_template(`${title} · Том ${curr.volume} Глава ${curr.number}` + (chapter.name ? ` · ${chapter.name}` : ""), head, html, prev, curr, next, chapters),
+				{ compression: "DEFLATE", compressionOptions: { level: 9 } }
 			);
 
 			zip.folder("chapters_txt").file(
-				`v${c.chapter_volume}_${c.chapter_number.toLocaleString("en-US", {minimumIntegerDigits: 3, useGrouping: false})}.txt`,
-				`${dom_head.innerText.replace(/^\n/, "")}\n\n${Array.from(dom_txt.children).map(c => c.innerText + "\n").join("")}`
+				`${chapter_tag}.txt`,
+				`${title}\n\nТом ${curr.volume} Глава ${curr.number}${chapter.name ? " - " + chapter.name : ""}\n\n${[...new DOMParser().parseFromString(html, "text/html").body.children].map(c => c.tagName === "IMG" ? `[${c.src}]\n\n` : `${c.innerText.replace("\n", " ")}\n\n`).join("")}`,
+				{ compression: "DEFLATE", compressionOptions: { level: 9 } }
 			);
+
+			// + 1 for /chapters + 1 for counting from 0
+			if (i > 0 && (i + 2) % 100 === 0) await delay(60_000);
 		}
 
-		zip.generateAsync({type: "base64"}).then((base64) => {
-			const a = document.createElement("a");
-			a.href = "data:application/zip;base64," + base64;
-			a.download = `${window.location.pathname.substring(window.location.pathname.lastIndexOf("/") + 1)}.zip`;
+		zip.generateAsync({ type: "base64" }).then((base64) => {
+			const a = create_element("a", {
+				href: "data:application/zip;base64," + base64,
+				download: `${window.location.pathname.substring(window.location.pathname.lastIndexOf("/") + 1)}.zip`,
+			});
 			a.click();
 		});
 	}
 
-	const btn = document.createElement("div");
-	btn.style.width = "40px";
-	btn.style.height = "40px";
-	btn.style.cursor = "pointer";
-	btn.style.position = "fixed";
-	btn.style.right = "20px";
-	btn.style.bottom = "20px";
-	btn.style.background = "#dbdbdb30";
-	btn.style.border = "1px solid #dbdbdb";
-	btn.style.borderRadius = "14px";
-	btn.style.userSelect = "none";
-	btn.style.lineHeight = "30px";
-	btn.style.fontSize = "20px";
-	btn.style.textAlign = "center";
-	btn.innerText = "📥";
+	const btn = create_element("div", {
+		style: "width: 40px; height: 40px; cursor: pointer; position: fixed; right: 20px; bottom: 20px; background: #dbdbdb30; border: 1px solid #dbdbdb; border-radius: 14px; user-select: none; line-height: 30px; font-size: 20px; text-align: center; z-index: 10;",
+		innerText: "📥",
+	});
 
 	document.body.appendChild(btn);
 
