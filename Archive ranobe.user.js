@@ -280,7 +280,7 @@ ${body}
 				attachments = chapter?.attachments?.map?.(a => ({ ...a, url: a?.url?.startsWith?.("/uploads/") ? `${window.location.origin}${a.url}` : `${window.location.origin}/uploads${a.url}` })) ?? [],
 				content_type = typeof chapter.content === "string", // string / json
 				html = (content_type
-					? chapter.content.replace(/(<img (?:[\w"=]+\s)*src=")[^"]+\/([^\/"]+)("(?:[\w"=]+\s|\s)*\/?>)/g, `$1../images/${chapter_tag}/$2$3`)
+					? chapter.content.replace(/(<img (?:[\w"=]+\s)*src=")https:\/\/ranobelib\.me\/[^"]+\/([^\/"]+)("(?:[\w"=]+\s|\s)*\/?>)/g, `$1../images/${chapter_tag}/$2$3`)
 					: chapter.content.content.map(o => (o.type === "paragraph"
 						? `<p>${o?.content?.map?.(o2 => o2.text)?.join?.("<br />") ?? ""}</p>`
 						: (o.type === "image" ? `<img alt="" src=${local_attachment(attachments, o?.attrs?.images?.[0]?.image, chapter_tag)} />` : `<p>${o?.text}</p>`)
