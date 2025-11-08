@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Archive ranobe
 // @namespace    https://github.com/JumpJets/Archive-ranobelib-userscript
-// @version      2024.04.21
+// @version      2025.11.08
 // @description  Download ranobe from ranobelib.me as archived zip.
 // @author       X4
 // @match        https://ranobelib.me/*book/*
@@ -54,11 +54,11 @@
 		}
 	};
 
-	const fetch_chapters = async (ranobe_id) => (await fetch_json(`https://api.lib.social/api/manga/${ranobe_id}/chapters`))?.data;
+	const fetch_chapters = async (slug) => (await fetch_json(`https://api.cdnlibs.org/api/manga/${slug}/chapters`))?.data;
 
-	const fetch_chapter = async (ranobe_id, volume, number) => (await fetch_json(`https://api.lib.social/api/manga/${ranobe_id}/chapter?number=${number}&volume=${volume}`))?.data;
+	const fetch_chapter = async (slug, volume, number) => (await fetch_json(`https://api.cdnlibs.org/api/manga/${slug}/chapter?number=${number}&volume=${volume}`))?.data;
 
-	const fetch_ranobe_data = async (slug) => (await fetch_json(`https://api.lib.social/api/manga/${slug}?fields[]=background&fields[]=eng_name&fields[]=otherNames&fields[]=summary&fields[]=releaseDate&fields[]=type_id&fields[]=caution&fields[]=views&fields[]=close_view&fields[]=rate_avg&fields[]=rate&fields[]=genres&fields[]=tags&fields[]=teams&fields[]=franchise&fields[]=authors&fields[]=publisher&fields[]=userRating&fields[]=moderated&fields[]=metadata&fields[]=metadata.count&fields[]=metadata.close_comments&fields[]=manga_status_id&fields[]=chap_count&fields[]=status_id&fields[]=artists&fields[]=format`))?.data;
+	const fetch_ranobe_data = async (slug) => (await fetch_json(`https://api.cdnlibs.org/api/manga/${slug}?fields[]=background&fields[]=eng_name&fields[]=otherNames&fields[]=summary&fields[]=releaseDate&fields[]=type_id&fields[]=caution&fields[]=views&fields[]=close_view&fields[]=rate_avg&fields[]=rate&fields[]=genres&fields[]=tags&fields[]=teams&fields[]=franchise&fields[]=authors&fields[]=publisher&fields[]=userRating&fields[]=moderated&fields[]=metadata&fields[]=metadata.count&fields[]=metadata.close_comments&fields[]=manga_status_id&fields[]=chap_count&fields[]=status_id&fields[]=artists&fields[]=format`))?.data;
 
 	const dl_archive = async (e) => {
 		function* zipiter(arr) {
@@ -269,14 +269,14 @@ ${body}
 			slug = window.location.pathname.match(/(?<=book\/)[\w\-]+/)?.[0],
 			ranobe_data = await fetch_ranobe_data(slug),
 			title = ranobe_data?.rus_name || ranobe_data?.name,
-			chapters = await fetch_chapters(ranobe_id),
+			chapters = await fetch_chapters(slug),
 			last = chapters.at(-1);
 
 		for (let [i, prev, curr, next] of zipiter(chapters)) {
 			console.log(`DL: volume ${curr.volume} chapter ${curr.number} / volume ${last.volume} chapter ${last.number}`);
 
 			const chapter_tag = `v${curr.volume}_${curr.number.toLocaleString("en-US", { minimumIntegerDigits: 3, useGrouping: false })}`,
-				chapter = await fetch_chapter(ranobe_id, curr.volume, curr.number) ?? { content: "", attachments: [] },
+				chapter = await fetch_chapter(slug, curr.volume, curr.number) ?? { content: "", attachments: [] },
 				attachments = chapter?.attachments?.map?.(a => ({ ...a, url: a?.url?.startsWith?.("/uploads/") ? `${window.location.origin}${a.url}` : `${window.location.origin}/uploads${a.url}` })) ?? [],
 				content_type = typeof chapter.content === "string", // string / json
 				html = (content_type
